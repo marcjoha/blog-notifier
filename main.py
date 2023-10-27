@@ -15,7 +15,7 @@ log = logging.getLogger("blog-notifier")
 HTML_TAGS = re.compile("<.*?>")
 HOURS_OLD = 1
 
-# Google Meet space webhook
+# Google Chat space webhook
 WEBHOOK = ""
 
 FEED_URLS = [
