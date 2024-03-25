@@ -13,10 +13,13 @@ logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
 log = logging.getLogger("blog-notifier")
 
 HTML_TAGS = re.compile("<.*?>")
-HOURS_OLD = 1
+HOURS_OLD = 24
 
-# Google Chat space webhook
-WEBHOOK = ""
+# Google Meet space webhook
+WEBHOOK = "https://chat.googleapis.com/v1/spaces/AAAAKbzSRAc/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=I9wI6jGsLNmdq_lyshOOpfqw7aQwluutMmj7tydDWEw"
+
+# MJ Test Room
+#WEBHOOK = "https://chat.googleapis.com/v1/spaces/AAAAw1WUPbU/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=M5h2bsBoGUEjLyOA-tVbOmXr0WXuyZr89jnq03gV4Qs"
 
 FEED_URLS = [
     "https://cloudblog.withgoogle.com/products/api-management/rss/",
@@ -25,8 +28,7 @@ FEED_URLS = [
     "https://cloudblog.withgoogle.com/products/containers-kubernetes/rss/",
     "https://cloudblog.withgoogle.com/products/devops-sre/rss/",
     "https://cloudblog.withgoogle.com/products/serverless/rss/",
-    "https://cloudblog.withgoogle.com/topics/developers-practitioners/rss/",
-    "https://kubernetes.io/feed.xml"
+    "https://cloudblog.withgoogle.com/topics/developers-practitioners/rss/"
 ]
 
 def main():
@@ -74,17 +76,19 @@ def fetch_posts(feed_url, hours_old):
         if(pubDate < cut_off_date):
             continue
 
-        # if there's content available, try to summarize it using AI
-        summary = summarize(entry.summary) if entry.summary else ""
+        # if there's content available, clean it up and run AI magic
+        if(entry.summary):
+            content = re.sub(HTML_TAGS, "", entry.summary)
+            summary = summarize(entry.summary)
+            techiness = get_techiness(entry.summary)
 
-        posts += [{"url": entry.link, "title": entry.title, "summary": summary}]
+        posts += [{"url": entry.link, "title": entry.title, "summary": summary, "techiness": techiness}]
 
     return posts
 
 def summarize(content):
 
-    # remove html that might interfere 
-    content = re.sub(HTML_TAGS, "", content)
+    query = "Summarize the following text using at most 30 words"
 
     model = TextGenerationModel.from_pretrained("text-bison@001")
     parameters = {
@@ -94,21 +98,75 @@ def summarize(content):
         "top_k": 40,                 
     }
     try:
-        response = model.predict("Provide a summary with about two sentences for the following article: " + content, **parameters)
+        response = model.predict(query + ": " + content, **parameters)
+
     except PermissionDenied:
         log.error("Not allowed to query Vertex AI to create summary")
     except Exception as e:
         log.error(e)
         return ""
 
-    return response.text
+    # clean up output
+    summary = re.sub(HTML_TAGS, "", response.text.strip())
+
+    if summary.startswith(query):
+        summary = summary[len(query)+1:].strip()
+
+    if summary:
+        return summary
+    else:
+        return '❓'
+
+# returns a 1-5 emoji
+
+def get_techiness(content):
+
+    model = TextGenerationModel.from_pretrained("text-bison@001")
+    parameters = {
+        "temperature": .2,
+        "max_output_tokens": 256,   
+        "top_p": .8,                
+        "top_k": 40,                 
+    }
+    try:
+        response = model.predict("Estimate how technical the following text is by assigning a score 1-5, where 1 is the least technical and 5 is the most technical (return only the number, nothing else): " + content, **parameters)
+    except PermissionDenied:
+        log.error("Not allowed to query Vertex AI to gauge techiness")
+    except Exception as e:
+        log.error(e)
+        return ""
+
+    techiness = response.text.strip()
+    if techiness.isdigit():
+        if techiness == '1':
+            return '1️⃣'
+        elif techiness == '2':
+            return '2️⃣'
+        elif techiness == '3':
+            return '3️⃣'
+        elif techiness == '4':
+            return '4️⃣'
+        elif techiness == '5':
+            return '5️⃣'
+        else:
+            return '❓'
+    else:
+        return '❓'
 
 def notify(post):
 
-    if post["summary"]:
-        message = "*" + post["title"] + "*\n" + post["url"] + "\n\n" + post["summary"]
+    message = "*" + post["title"] + "*\n" + post["url"]
+
+    if post["techiness"]:
+        message += "\n\n_Tech score_: " + post["techiness"] + " / 5️⃣"
+        if post["summary"]:
+            message += "\n_Summary_: " + post["summary"]
+        
+
     else:
-        message = "*" + post["title"] + "*\n" + post["url"]
+        if post["summary"]:
+            message += "\n\n_Summary_: " + post["summary"]
+            
 
     response = Http().request(
         uri=WEBHOOK,
