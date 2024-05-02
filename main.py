@@ -16,7 +16,7 @@ HTML_TAGS = re.compile("<.*?>")
 HOURS_OLD = 24
 
 # Google Meet space webhook
-WEBHOOK = ""
+WEBHOOK = "https://chat.googleapis.com/v1/spaces/AAAAKbzSRAc/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=I9wI6jGsLNmdq_lyshOOpfqw7aQwluutMmj7tydDWEw"
 
 FEED_URLS = [
     "https://cloudblog.withgoogle.com/products/api-management/rss/",
@@ -24,8 +24,7 @@ FEED_URLS = [
     "https://cloudblog.withgoogle.com/products/application-modernization/rss/",
     "https://cloudblog.withgoogle.com/products/containers-kubernetes/rss/",
     "https://cloudblog.withgoogle.com/products/devops-sre/rss/",
-    "https://cloudblog.withgoogle.com/products/serverless/rss/",
-    "https://cloudblog.withgoogle.com/topics/developers-practitioners/rss/"
+    "https://cloudblog.withgoogle.com/products/serverless/rss/"
 ]
 
 def main():
@@ -87,7 +86,7 @@ def summarize(content):
 
     query = "Summarize the following text using at most 30 words"
 
-    model = TextGenerationModel.from_pretrained("text-bison@001")
+    model = TextGenerationModel.from_pretrained("text-bison")
     parameters = {
         "temperature": .2,
         "max_output_tokens": 256,   
@@ -112,15 +111,15 @@ def summarize(content):
     if summary:
         return summary
     else:
-        return '❓'
+        return None
 
 # returns a 1-5 emoji
 
 def get_techiness(content):
 
-    model = TextGenerationModel.from_pretrained("text-bison@001")
+    model = TextGenerationModel.from_pretrained("text-bison")
     parameters = {
-        "temperature": .2,
+        "temperature": 0,
         "max_output_tokens": 256,   
         "top_p": .8,                
         "top_k": 40,                 
@@ -146,24 +145,34 @@ def get_techiness(content):
         elif techiness == '5':
             return '5️⃣'
         else:
-            return '❓'
+            return None
     else:
-        return '❓'
+        return None
 
 def notify(post):
 
-    message = "*" + post["title"] + "*\n" + post["url"]
+    # message = "*" + post["title"] + "*\n" + post["url"]
+
+    # if post["techiness"]:
+    #     message += "\n\n_Tech score_: " + post["techiness"] + " / 5️⃣"
+    #     if post["summary"]:
+    #         message += "\n_Summary_: " + post["summary"]
+    # else:
+    #     if post["summary"]:
+    #         message += "\n\n_Summary_: " + post["summary"]
+
+    message = ""
 
     if post["techiness"]:
-        message += "\n\n_Tech score_: " + post["techiness"] + " / 5️⃣"
-        if post["summary"]:
-            message += "\n_Summary_: " + post["summary"]
-        
+         message += post["techiness"] + " / 5️⃣: "
 
-    else:
-        if post["summary"]:
-            message += "\n\n_Summary_: " + post["summary"]
-            
+    message += post["title"]
+
+    if post["summary"]:
+        message += "\n\n" + post["summary"]
+
+    if post["url"]:
+        message += "\n\n" + post["url"]
 
     response = Http().request(
         uri=WEBHOOK,
