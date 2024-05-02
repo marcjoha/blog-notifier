@@ -16,7 +16,7 @@ HTML_TAGS = re.compile("<.*?>")
 HOURS_OLD = 24
 
 # Google Meet space webhook
-WEBHOOK = "https://chat.googleapis.com/v1/spaces/AAAAKbzSRAc/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=I9wI6jGsLNmdq_lyshOOpfqw7aQwluutMmj7tydDWEw"
+WEBHOOK = ""
 
 FEED_URLS = [
     "https://cloudblog.withgoogle.com/products/api-management/rss/",
