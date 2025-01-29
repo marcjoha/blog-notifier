@@ -5,9 +5,9 @@ import re
 from datetime import datetime, timedelta, timezone
 from dateutil import parser
 from httplib2 import Http
-from vertexai.preview.language_models import TextGenerationModel
-from google.api_core.exceptions import PermissionDenied
 import logging
+from google import genai
+from google.genai import types
 
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
 log = logging.getLogger("blog-notifier")
@@ -15,8 +15,8 @@ log = logging.getLogger("blog-notifier")
 HTML_TAGS = re.compile("<.*?>")
 HOURS_OLD = 24
 
-# Google Meet space webhook
 WEBHOOK = ""
+GCP_PROJECT = ""
 
 FEED_URLS = [
     "https://cloudblog.withgoogle.com/products/api-management/rss/",
@@ -83,56 +83,116 @@ def fetch_posts(feed_url, hours_old):
     return posts
 
 def summarize(content):
+    client = genai.Client(vertexai=True, project=GCP_PROJECT, location="us-central1")
 
-    query = "Summarize the following text using at most 30 words"
+    model = "gemini-2.0-flash-exp"
+    contents = [
+        types.Content(role="user", parts=[types.Part.from_text("Summarize the following with at most 25 words: " + content)])
+    ]
 
-    model = TextGenerationModel.from_pretrained("text-bison")
-    parameters = {
-        "temperature": .2,
-        "max_output_tokens": 256,   
-        "top_p": .8,                
-        "top_k": 40,                 
-    }
+    generate_content_config = types.GenerateContentConfig(
+        temperature=0.2,
+        top_p=0.95,
+        max_output_tokens=256,
+        response_modalities=["TEXT"],
+        safety_settings=[
+            types.SafetySetting(
+                category="HARM_CATEGORY_HATE_SPEECH",
+                threshold="OFF"
+            ),
+            types.SafetySetting(
+                category="HARM_CATEGORY_DANGEROUS_CONTENT",
+                threshold="OFF"
+            ),
+            types.SafetySetting(
+                category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                threshold="OFF"
+            ),
+            types.SafetySetting(
+                category="HARM_CATEGORY_HARASSMENT",
+                threshold="OFF"
+            ),
+        ],
+    )
+
     try:
-        response = model.predict(query + ": " + content, **parameters)
+        response = client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=generate_content_config,
+        )
 
-    except PermissionDenied:
-        log.error("Not allowed to query Vertex AI to create summary")
+        if response.candidates:
+            summary = ""
+            for candidate in response.candidates:
+                for part in candidate.content.parts:
+                    if part.text:
+                        summary += part.text
+
+            return summary
+        else:
+            return ""
+
     except Exception as e:
-        log.error(e)
         return ""
 
-    # clean up output
-    summary = re.sub(HTML_TAGS, "", response.text.strip())
 
-    if summary.startswith(query):
-        summary = summary[len(query)+1:].strip()
-
-    if summary:
-        return summary
-    else:
-        return None
-
-# returns a 1-5 emoji
 
 def get_techiness(content):
 
-    model = TextGenerationModel.from_pretrained("text-bison")
-    parameters = {
-        "temperature": 0,
-        "max_output_tokens": 256,   
-        "top_p": .8,                
-        "top_k": 40,                 
-    }
-    try:
-        response = model.predict("Estimate how technical the following text is by assigning a score 1-5, where 1 is the least technical and 5 is the most technical (return only the number, nothing else): " + content, **parameters)
-    except PermissionDenied:
-        log.error("Not allowed to query Vertex AI to gauge techiness")
-    except Exception as e:
-        log.error(e)
-        return ""
+    client = genai.Client(vertexai=True, project=GCP_PROJECT, location="us-central1")
 
-    techiness = response.text.strip()
+    model = "gemini-2.0-flash-exp"
+    contents = [
+        types.Content(role="user", parts=[types.Part.from_text("Estimate how technical the following text is by assigning a score 1-5, where 1 is the least technical and 5 is the most technical (return only the number, nothing else): " + content)])
+    ]
+
+    generate_content_config = types.GenerateContentConfig(
+        temperature=0.2,
+        top_p=0.95,
+        max_output_tokens=256,
+        response_modalities=["TEXT"],
+        safety_settings=[
+            types.SafetySetting(
+                category="HARM_CATEGORY_HATE_SPEECH",
+                threshold="OFF"
+            ),
+            types.SafetySetting(
+                category="HARM_CATEGORY_DANGEROUS_CONTENT",
+                threshold="OFF"
+            ),
+            types.SafetySetting(
+                category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                threshold="OFF"
+            ),
+            types.SafetySetting(
+                category="HARM_CATEGORY_HARASSMENT",
+                threshold="OFF"
+            ),
+        ],
+    )
+
+    text = ""
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=generate_content_config,
+        )
+
+        if response.candidates:
+            for candidate in response.candidates:
+                for part in candidate.content.parts:
+                    if part.text:
+                        text += part.text
+
+        else:
+            text = ""
+
+    except Exception as e:
+        text = ""
+
+    techiness = text.strip()
     if techiness.isdigit():
         if techiness == '1':
             return '1️⃣'
@@ -150,29 +210,15 @@ def get_techiness(content):
         return None
 
 def notify(post):
-
-    # message = "*" + post["title"] + "*\n" + post["url"]
-
-    # if post["techiness"]:
-    #     message += "\n\n_Tech score_: " + post["techiness"] + " / 5️⃣"
-    #     if post["summary"]:
-    #         message += "\n_Summary_: " + post["summary"]
-    # else:
-    #     if post["summary"]:
-    #         message += "\n\n_Summary_: " + post["summary"]
-
     message = ""
 
     if post["techiness"]:
          message += post["techiness"] + " / 5️⃣: "
 
-    message += post["title"]
+    message += "<" + post["url"] + "|" + post["title"] + ">"
 
     if post["summary"]:
         message += "\n\n" + post["summary"]
-
-    if post["url"]:
-        message += "\n\n" + post["url"]
 
     response = Http().request(
         uri=WEBHOOK,
