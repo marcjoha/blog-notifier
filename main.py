@@ -12,9 +12,12 @@ from google.genai.types import HttpOptions, Part
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
 log = logging.getLogger("blog-notifier")
 
-# Get WEBHOOK and GCP_PROJECT from environment variables
-WEBHOOK = os.environ.get("BLOG_NOTIFIER_WEBHOOK")
-GCP_PROJECT = os.environ.get("BLOG_NOTIFIER_GCP_PROJECT")
+# Suppress excessive logging
+logging.getLogger("google_genai").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+CHAT_WEBHOOK = os.environ.get("CHAT_WEBHOOK")
+GOOGLE_CLOUD_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT")
 
 HOURS_OLD = 24*7
 FEED_URLS = [
@@ -30,10 +33,10 @@ FEED_URLS = [
 def main():
 
     # Check if environment variables are set
-    if not WEBHOOK:
+    if not CHAT_WEBHOOK:
         log.error("BLOG_NOTIFIER_WEBHOOK environment variable missing, exiting...")
         return
-    if not GCP_PROJECT:
+    if not GOOGLE_CLOUD_PROJECT:
         log.error("BLOG_NOTIFIER_GCP_PROJECT environment variable missing, exiting...")
         return
 
@@ -71,9 +74,12 @@ def fetch_posts(feed_url, hours_old):
         try:
             pubDate = parser.parse(entry.published)
         except AttributeError:
-            # skip post if there's no date information
-            continue
-            
+            try:
+                pubDate = parser.parse(entry.updated)
+            except AttributeError:
+                log.warning(f"Encountered post without date in feed [{feed_url}]")
+                continue
+           
         # also skip if pubDate is older than our cut off date
         if(pubDate < cut_off_date):
             continue
@@ -82,51 +88,35 @@ def fetch_posts(feed_url, hours_old):
         if(entry.summary):
             content = re.sub(html_tags, "", entry.summary)
             summary = get_summary(entry.summary)
-            techiness = get_techiness(entry.summary)
 
-        posts += [{"url": entry.link, "title": entry.title, "summary": summary, "techiness": techiness}]
+        posts += [{"site": feed.feed.title, "url": entry.link, "title": entry.title, "summary": summary}]
 
     return posts
 
 def get_summary(content):
     return ask_gemini("Summarize the following with at most 25 words: " + content)
 
-def get_techiness(content):
-    answer = ask_gemini("Estimate how technical the following text is by assigning a score 1-5, where 1 is the least technical and 5 is the most technical (return only the number, nothing else): " + content)
-    techiness = answer.strip()
-    if techiness.isdigit():
-        if techiness == '1':
-            return '1️⃣'
-        elif techiness == '2':
-            return '2️⃣'
-        elif techiness == '3':
-            return '3️⃣'
-        elif techiness == '4':
-            return '4️⃣'
-        elif techiness == '5':
-            return '5️⃣'
-        else:
-            return None
-    else:
-        return None
-
 def ask_gemini(prompt):
     try:
-        client = genai.Client(vertexai=True, project=GCP_PROJECT, location="us-central1", http_options=HttpOptions(api_version="v1"))
+        client = genai.Client(vertexai=True, project=GOOGLE_CLOUD_PROJECT, location="us-central1", http_options=HttpOptions(api_version="v1"))
         response = client.models.generate_content(
             model="gemini-2.0-flash-001",
             contents=[prompt],
         )
         return response.text
     except Exception as e:
-        log.error(f"Error from Vertex: {e}")
+        log.error(f"Error from Vertex: [{e}]")
         return ""
 
 def notify(post):
     message = ""
 
-    if post["techiness"]:
-         message += post["techiness"] + " / 5️⃣: "
+    if post["site"]:
+        if "Google Kubernetes Engine" in post["site"]:
+            message += "GKE feature log: "
+        else:
+            message += post["site"] + ": "
+
 
     message += "<" + post["url"] + "|" + post["title"] + ">"
 
@@ -134,14 +124,14 @@ def notify(post):
         message += "\n\n" + post["summary"]
 
     response = Http().request(
-        uri=WEBHOOK,
+        uri=CHAT_WEBHOOK,
         method="POST",
         headers={"Content-Type": "application/json; charset=UTF-8"},
         body=json.dumps({"text": message}),
     )
 
     if response[0].status != 200:
-        log.error(f"Failed to notify with status [{response[0].status_code}] on post [{post['url']}]")
+        log.error(f"Failed to notify with status [{response[0].status}] on post [{post['url']}]")
         return False
     
     return True

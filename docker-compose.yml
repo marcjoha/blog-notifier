@@ -2,5 +2,7 @@ services:
   blog-notifier:
     build: .
     environment:
-      - BLOG_NOTIFIER_WEBHOOK=${BLOG_NOTIFIER_WEBHOOK}
-      - BLOG_NOTIFIER_GCP_PROJECT=${BLOG_NOTIFIER_GCP_PROJECT}
+      - CHAT_WEBHOOK=${CHAT_WEBHOOK}
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
+    volumes:
+      - ~/.config/gcloud:/root/.config/gcloud
