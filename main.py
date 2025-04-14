@@ -26,11 +26,9 @@ FEED_URLS = [
     "https://cloudblog.withgoogle.com/products/serverless/rss/"
 ]
 
-
-
 def main():
 
-    # Check if the environment variables are set
+    # Check if environment variables are set
     if not WEBHOOK:
         log.error("BLOG_NOTIFIER_WEBHOOK environment variable missing, exiting...")
         return
@@ -142,8 +140,6 @@ def summarize(content):
 
     except Exception as e:
         return ""
-
-
 
 def get_techiness(content):
 
