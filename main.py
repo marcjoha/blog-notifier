@@ -12,12 +12,11 @@ from google.genai import types
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
 log = logging.getLogger("blog-notifier")
 
-HTML_TAGS = re.compile("<.*?>")
+# Get WEBHOOK and GCP_PROJECT from environment variables
+WEBHOOK = os.environ.get("BLOG_NOTIFIER_WEBHOOK")
+GCP_PROJECT = os.environ.get("BLOG_NOTIFIER_GCP_PROJECT")
+
 HOURS_OLD = 24
-
-WEBHOOK = ""
-GCP_PROJECT = ""
-
 FEED_URLS = [
     "https://cloudblog.withgoogle.com/products/api-management/rss/",
     "https://cloudblog.withgoogle.com/products/application-development/rss/",
@@ -27,10 +26,16 @@ FEED_URLS = [
     "https://cloudblog.withgoogle.com/products/serverless/rss/"
 ]
 
+
+
 def main():
 
+    # Check if the environment variables are set
     if not WEBHOOK:
-        log.error("Webhook missing, exiting...")
+        log.error("BLOG_NOTIFIER_WEBHOOK environment variable missing, exiting...")
+        return
+    if not GCP_PROJECT:
+        log.error("BLOG_NOTIFIER_GCP_PROJECT environment variable missing, exiting...")
         return
 
     log.info(f"Querying [{len(FEED_URLS)}] feed{'s'[:len(FEED_URLS)^1]} for new posts over the last [{HOURS_OLD}] hour{'s'[:HOURS_OLD^1]}")
@@ -54,6 +59,8 @@ def main():
     
 def fetch_posts(feed_url, hours_old):
 
+    html_tags = re.compile("<.*?>")
+
     # only consider posts newer than HOURS_OLD
     cut_off_date = datetime.now().replace(tzinfo=timezone.utc) - timedelta(hours=hours_old)
 
@@ -74,7 +81,7 @@ def fetch_posts(feed_url, hours_old):
 
         # if there's content available, clean it up and run AI magic
         if(entry.summary):
-            content = re.sub(HTML_TAGS, "", entry.summary)
+            content = re.sub(html_tags, "", entry.summary)
             summary = summarize(entry.summary)
             techiness = get_techiness(entry.summary)
 
