@@ -7,7 +7,7 @@ from dateutil import parser
 from httplib2 import Http
 import logging
 from google import genai
-from google.genai import types
+from google.genai.types import HttpOptions, Part
 
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
 log = logging.getLogger("blog-notifier")
@@ -16,14 +16,15 @@ log = logging.getLogger("blog-notifier")
 WEBHOOK = os.environ.get("BLOG_NOTIFIER_WEBHOOK")
 GCP_PROJECT = os.environ.get("BLOG_NOTIFIER_GCP_PROJECT")
 
-HOURS_OLD = 24
+HOURS_OLD = 24*7
 FEED_URLS = [
     "https://cloudblog.withgoogle.com/products/api-management/rss/",
     "https://cloudblog.withgoogle.com/products/application-development/rss/",
     "https://cloudblog.withgoogle.com/products/application-modernization/rss/",
     "https://cloudblog.withgoogle.com/products/containers-kubernetes/rss/",
     "https://cloudblog.withgoogle.com/products/devops-sre/rss/",
-    "https://cloudblog.withgoogle.com/products/serverless/rss/"
+    "https://cloudblog.withgoogle.com/products/serverless/rss/",
+    "https://cloud.google.com/feeds/gke-new-features-release-notes.xml"
 ]
 
 def main():
@@ -80,122 +81,19 @@ def fetch_posts(feed_url, hours_old):
         # if there's content available, clean it up and run AI magic
         if(entry.summary):
             content = re.sub(html_tags, "", entry.summary)
-            summary = summarize(entry.summary)
+            summary = get_summary(entry.summary)
             techiness = get_techiness(entry.summary)
 
         posts += [{"url": entry.link, "title": entry.title, "summary": summary, "techiness": techiness}]
 
     return posts
 
-def summarize(content):
-    client = genai.Client(vertexai=True, project=GCP_PROJECT, location="us-central1")
-
-    model = "gemini-2.0-flash-exp"
-    contents = [
-        types.Content(role="user", parts=[types.Part.from_text("Summarize the following with at most 25 words: " + content)])
-    ]
-
-    generate_content_config = types.GenerateContentConfig(
-        temperature=0.2,
-        top_p=0.95,
-        max_output_tokens=256,
-        response_modalities=["TEXT"],
-        safety_settings=[
-            types.SafetySetting(
-                category="HARM_CATEGORY_HATE_SPEECH",
-                threshold="OFF"
-            ),
-            types.SafetySetting(
-                category="HARM_CATEGORY_DANGEROUS_CONTENT",
-                threshold="OFF"
-            ),
-            types.SafetySetting(
-                category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                threshold="OFF"
-            ),
-            types.SafetySetting(
-                category="HARM_CATEGORY_HARASSMENT",
-                threshold="OFF"
-            ),
-        ],
-    )
-
-    try:
-        response = client.models.generate_content(
-            model=model,
-            contents=contents,
-            config=generate_content_config,
-        )
-
-        if response.candidates:
-            summary = ""
-            for candidate in response.candidates:
-                for part in candidate.content.parts:
-                    if part.text:
-                        summary += part.text
-
-            return summary
-        else:
-            return ""
-
-    except Exception as e:
-        return ""
+def get_summary(content):
+    return ask_gemini("Summarize the following with at most 25 words: " + content)
 
 def get_techiness(content):
-
-    client = genai.Client(vertexai=True, project=GCP_PROJECT, location="us-central1")
-
-    model = "gemini-2.0-flash-exp"
-    contents = [
-        types.Content(role="user", parts=[types.Part.from_text("Estimate how technical the following text is by assigning a score 1-5, where 1 is the least technical and 5 is the most technical (return only the number, nothing else): " + content)])
-    ]
-
-    generate_content_config = types.GenerateContentConfig(
-        temperature=0.2,
-        top_p=0.95,
-        max_output_tokens=256,
-        response_modalities=["TEXT"],
-        safety_settings=[
-            types.SafetySetting(
-                category="HARM_CATEGORY_HATE_SPEECH",
-                threshold="OFF"
-            ),
-            types.SafetySetting(
-                category="HARM_CATEGORY_DANGEROUS_CONTENT",
-                threshold="OFF"
-            ),
-            types.SafetySetting(
-                category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                threshold="OFF"
-            ),
-            types.SafetySetting(
-                category="HARM_CATEGORY_HARASSMENT",
-                threshold="OFF"
-            ),
-        ],
-    )
-
-    text = ""
-    try:
-        response = client.models.generate_content(
-            model=model,
-            contents=contents,
-            config=generate_content_config,
-        )
-
-        if response.candidates:
-            for candidate in response.candidates:
-                for part in candidate.content.parts:
-                    if part.text:
-                        text += part.text
-
-        else:
-            text = ""
-
-    except Exception as e:
-        text = ""
-
-    techiness = text.strip()
+    answer = ask_gemini("Estimate how technical the following text is by assigning a score 1-5, where 1 is the least technical and 5 is the most technical (return only the number, nothing else): " + content)
+    techiness = answer.strip()
     if techiness.isdigit():
         if techiness == '1':
             return '1️⃣'
@@ -211,6 +109,18 @@ def get_techiness(content):
             return None
     else:
         return None
+
+def ask_gemini(prompt):
+    try:
+        client = genai.Client(vertexai=True, project=GCP_PROJECT, location="us-central1", http_options=HttpOptions(api_version="v1"))
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-001",
+            contents=[prompt],
+        )
+        return response.text
+    except Exception as e:
+        log.error(f"Error from Vertex: {e}")
+        return ""
 
 def notify(post):
     message = ""

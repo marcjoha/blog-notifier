@@ -1,0 +1,6 @@
+services:
+  blog-notifier:
+    build: .
+    environment:
+      - BLOG_NOTIFIER_WEBHOOK=${BLOG_NOTIFIER_WEBHOOK}
+      - BLOG_NOTIFIER_GCP_PROJECT=${BLOG_NOTIFIER_GCP_PROJECT}
