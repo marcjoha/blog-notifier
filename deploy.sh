@@ -41,6 +41,7 @@ fi
 echo "Deploying Cloud Run job..."
 gcloud run jobs deploy blog-notifier \
   --source . \
+  --project "$GOOGLE_CLOUD_PROJECT" \
   --region "$JOB_REGION" \
   --set-env-vars "CHAT_WEBHOOK=$CHAT_WEBHOOK,GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,AI_REGION=$AI_REGION"
 
