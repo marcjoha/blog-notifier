@@ -4,5 +4,6 @@ services:
     environment:
       - CHAT_WEBHOOK=${CHAT_WEBHOOK}
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
+      - AI_REGION=${AI_REGION}
     volumes:
       - ~/.config/gcloud:/root/.config/gcloud
