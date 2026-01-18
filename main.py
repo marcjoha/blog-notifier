@@ -5,10 +5,10 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import feedparser
+import httpx
 from dateutil import parser
 from google import genai
-from google.genai.types import HttpOptions
-from httplib2 import Http
+from google.genai.types import HttpOptions, GenerateContentConfig
 
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
 log = logging.getLogger("blog-notifier")
@@ -41,7 +41,7 @@ def main():
         log.error("CHAT_WEBHOOK environment variable missing, exiting...")
         return
     elif not is_valid_url(CHAT_WEBHOOK):
-        log.error(f"CHAT_WEBHOOK environment variable is not a valid URL [{CHAT_WEBHOOK}], exiting...")
+        log.error("CHAT_WEBHOOK environment variable is not a valid URL, exiting...")
         return
     
     if not GOOGLE_CLOUD_PROJECT:
@@ -75,7 +75,7 @@ def main():
 def is_valid_url(url):
     try:
         result = urlparse(url)
-        return all([result.scheme, result.netloc])
+        return all([result.scheme in ["http", "https"], result.netloc])
     except ValueError:
         return False
     
@@ -117,7 +117,10 @@ def get_summary(content):
         client = genai.Client(vertexai=True, project=GOOGLE_CLOUD_PROJECT, location=AI_REGION, http_options=HttpOptions(api_version="v1"))
         response = client.models.generate_content(
             model="gemini-2.0-flash-001",
-            contents=["You're a Google Cloud technical professional. Summarize the following with at most 40 words: " + content],
+            config=GenerateContentConfig(
+                system_instruction="You're a Google Cloud technical professional. Summarize the content provided by the user with at most 40 words.",
+            ),
+            contents=[content],
         )
         return response.text
     except Exception as e:
@@ -130,17 +133,20 @@ def notify(post):
     if post["summary"]:
         message += "\n\n" + post["summary"].strip()
 
-    response = Http().request(
-        uri=CHAT_WEBHOOK,
-        method="POST",
-        headers={"Content-Type": "application/json; charset=UTF-8"},
-        body=json.dumps({"text": message}),
-    )
-
-    if response[0].status != 200:
-        log.error(f"Failed to notify due to web hook response [{response[0]}]")
+    try:
+        with httpx.Client() as client:
+            response = client.post(
+                CHAT_WEBHOOK,
+                json={"text": message},
+            )
+            response.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        log.error(f"Failed to notify due to web hook response [{e.response.status_code}]")
         return False
-    
+    except Exception:
+        log.error("Failed to notify due to an unexpected error")
+        return False
+
     return True
 
 if __name__ == "__main__":
