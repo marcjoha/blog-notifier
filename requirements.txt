@@ -1,4 +1,4 @@
 feedparser
-httplib2
+httpx
 google-genai
 python-dateutil
